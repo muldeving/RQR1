@@ -15,21 +15,24 @@ const char* AP_SSID     = "Rover_ESP32";
 const char* AP_PASSWORD = "rover1234"; // 8 caractères minimum
 
 // ---------- Brochage L298 ----------
-// Moteur gauche
-const int IN1 = 26;   // sens moteur gauche
-const int IN2 = 27;
-const int ENA = 14;   // PWM moteur gauche (ENA du L298)
-
-// Moteur droit
-const int IN3 = 25;   // sens moteur droit
-const int IN4 = 33;
-const int ENB = 32;   // PWM moteur droit (ENB du L298)
+// Module L298 avec 4 entrees seulement (pas d'ENA/ENB) :
+// on pilote la vitesse en envoyant le PWM directement sur les
+// entrees IN1/IN2 (moteur gauche) et IN3/IN4 (moteur droit).
+// Une seule des deux entrees recoit le PWM, l'autre reste a 0,
+// selon le sens de rotation demande.
+const int IN1 = 26;   // moteur gauche - entree 1
+const int IN2 = 27;   // moteur gauche - entree 2
+const int IN3 = 25;   // moteur droit  - entree 1
+const int IN4 = 33;   // moteur droit  - entree 2
 
 // ---------- Configuration PWM (LEDC) ----------
 const int PWM_FREQ      = 1000;   // 1 kHz, bon compromis pour le L298
 const int PWM_RESOLUTION = 8;     // 8 bits => 0..255
-const int PWM_CH_LEFT   = 0;
-const int PWM_CH_RIGHT  = 1;
+// Un canal LEDC par entree (4 canaux PWM au total)
+const int PWM_CH_IN1 = 0;
+const int PWM_CH_IN2 = 1;
+const int PWM_CH_IN3 = 2;
+const int PWM_CH_IN4 = 3;
 
 // Vitesse courante (0..100 %)
 int currentSpeed = 60;
@@ -37,33 +40,36 @@ int currentSpeed = 60;
 WebServer server(80);
 
 // ---------- Commandes moteurs ----------
+// Sur ce module L298 sans ENA/ENB, le sens et la vitesse sont
+// donnes par les deux entrees du moteur :
+//   avant   : INx = PWM, INy = 0
+//   arriere : INx = 0,   INy = PWM
+//   stop    : INx = 0,   INy = 0
 void setMotorLeft(int dir, int pwm) {
   // dir : +1 avant, -1 arriere, 0 stop
   if (dir > 0) {
-    digitalWrite(IN1, HIGH);
-    digitalWrite(IN2, LOW);
+    ledcWrite(PWM_CH_IN1, pwm);
+    ledcWrite(PWM_CH_IN2, 0);
   } else if (dir < 0) {
-    digitalWrite(IN1, LOW);
-    digitalWrite(IN2, HIGH);
+    ledcWrite(PWM_CH_IN1, 0);
+    ledcWrite(PWM_CH_IN2, pwm);
   } else {
-    digitalWrite(IN1, LOW);
-    digitalWrite(IN2, LOW);
+    ledcWrite(PWM_CH_IN1, 0);
+    ledcWrite(PWM_CH_IN2, 0);
   }
-  ledcWrite(PWM_CH_LEFT, pwm);
 }
 
 void setMotorRight(int dir, int pwm) {
   if (dir > 0) {
-    digitalWrite(IN3, HIGH);
-    digitalWrite(IN4, LOW);
+    ledcWrite(PWM_CH_IN3, pwm);
+    ledcWrite(PWM_CH_IN4, 0);
   } else if (dir < 0) {
-    digitalWrite(IN3, LOW);
-    digitalWrite(IN4, HIGH);
+    ledcWrite(PWM_CH_IN3, 0);
+    ledcWrite(PWM_CH_IN4, pwm);
   } else {
-    digitalWrite(IN3, LOW);
-    digitalWrite(IN4, LOW);
+    ledcWrite(PWM_CH_IN3, 0);
+    ledcWrite(PWM_CH_IN4, 0);
   }
-  ledcWrite(PWM_CH_RIGHT, pwm);
 }
 
 int speedToPwm(int pct) {
@@ -179,17 +185,15 @@ void handleNotFound() {
 void setup() {
   Serial.begin(115200);
 
-  // Broches de sens
-  pinMode(IN1, OUTPUT);
-  pinMode(IN2, OUTPUT);
-  pinMode(IN3, OUTPUT);
-  pinMode(IN4, OUTPUT);
-
-  // PWM sur ENA/ENB
-  ledcSetup(PWM_CH_LEFT,  PWM_FREQ, PWM_RESOLUTION);
-  ledcAttachPin(ENA, PWM_CH_LEFT);
-  ledcSetup(PWM_CH_RIGHT, PWM_FREQ, PWM_RESOLUTION);
-  ledcAttachPin(ENB, PWM_CH_RIGHT);
+  // PWM sur les 4 entrees du L298
+  ledcSetup(PWM_CH_IN1, PWM_FREQ, PWM_RESOLUTION);
+  ledcAttachPin(IN1, PWM_CH_IN1);
+  ledcSetup(PWM_CH_IN2, PWM_FREQ, PWM_RESOLUTION);
+  ledcAttachPin(IN2, PWM_CH_IN2);
+  ledcSetup(PWM_CH_IN3, PWM_FREQ, PWM_RESOLUTION);
+  ledcAttachPin(IN3, PWM_CH_IN3);
+  ledcSetup(PWM_CH_IN4, PWM_FREQ, PWM_RESOLUTION);
+  ledcAttachPin(IN4, PWM_CH_IN4);
 
   rover_stop();
 
