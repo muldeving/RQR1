@@ -22,17 +22,14 @@ const char* AP_PASSWORD = "rover1234"; // 8 caractères minimum
 // selon le sens de rotation demande.
 const int IN1 = 26;   // moteur gauche - entree 1
 const int IN2 = 27;   // moteur gauche - entree 2
-const int IN3 = 25;   // moteur droit  - entree 1
+const int IN3 = 32;   // moteur droit  - entree 1
 const int IN4 = 33;   // moteur droit  - entree 2
 
 // ---------- Configuration PWM (LEDC) ----------
-const int PWM_FREQ      = 1000;   // 1 kHz, bon compromis pour le L298
+// API LEDC du core ESP32 v3.x : ledcAttach(pin, freq, resolution)
+// puis ledcWrite(pin, duty). Plus besoin de gerer les numeros de canaux.
+const int PWM_FREQ       = 1000;  // 1 kHz, bon compromis pour le L298
 const int PWM_RESOLUTION = 8;     // 8 bits => 0..255
-// Un canal LEDC par entree (4 canaux PWM au total)
-const int PWM_CH_IN1 = 0;
-const int PWM_CH_IN2 = 1;
-const int PWM_CH_IN3 = 2;
-const int PWM_CH_IN4 = 3;
 
 // Vitesse courante (0..100 %)
 int currentSpeed = 60;
@@ -48,27 +45,27 @@ WebServer server(80);
 void setMotorLeft(int dir, int pwm) {
   // dir : +1 avant, -1 arriere, 0 stop
   if (dir > 0) {
-    ledcWrite(PWM_CH_IN1, pwm);
-    ledcWrite(PWM_CH_IN2, 0);
+    ledcWrite(IN1, pwm);
+    ledcWrite(IN2, 0);
   } else if (dir < 0) {
-    ledcWrite(PWM_CH_IN1, 0);
-    ledcWrite(PWM_CH_IN2, pwm);
+    ledcWrite(IN1, 0);
+    ledcWrite(IN2, pwm);
   } else {
-    ledcWrite(PWM_CH_IN1, 0);
-    ledcWrite(PWM_CH_IN2, 0);
+    ledcWrite(IN1, 0);
+    ledcWrite(IN2, 0);
   }
 }
 
 void setMotorRight(int dir, int pwm) {
   if (dir > 0) {
-    ledcWrite(PWM_CH_IN3, pwm);
-    ledcWrite(PWM_CH_IN4, 0);
+    ledcWrite(IN3, pwm);
+    ledcWrite(IN4, 0);
   } else if (dir < 0) {
-    ledcWrite(PWM_CH_IN3, 0);
-    ledcWrite(PWM_CH_IN4, pwm);
+    ledcWrite(IN3, 0);
+    ledcWrite(IN4, pwm);
   } else {
-    ledcWrite(PWM_CH_IN3, 0);
-    ledcWrite(PWM_CH_IN4, 0);
+    ledcWrite(IN3, 0);
+    ledcWrite(IN4, 0);
   }
 }
 
@@ -80,8 +77,8 @@ int speedToPwm(int pct) {
 
 void rover_forward()  { int p = speedToPwm(currentSpeed); setMotorLeft(+1, p); setMotorRight(+1, p); }
 void rover_backward() { int p = speedToPwm(currentSpeed); setMotorLeft(-1, p); setMotorRight(-1, p); }
-void rover_left()     { int p = speedToPwm(currentSpeed); setMotorLeft(-1, p); setMotorRight(+1, p); } // rotation sur place
-void rover_right()    { int p = speedToPwm(currentSpeed); setMotorLeft(+1, p); setMotorRight(-1, p); } // rotation sur place
+void rover_left()     { int p = speedToPwm(currentSpeed); setMotorLeft(+1, p); setMotorRight(-1, p); } // rotation sur place
+void rover_right()    { int p = speedToPwm(currentSpeed); setMotorLeft(-1, p); setMotorRight(+1, p); } // rotation sur place
 void rover_stop()     { setMotorLeft(0, 0); setMotorRight(0, 0); }
 
 // ---------- Page web ----------
@@ -185,15 +182,11 @@ void handleNotFound() {
 void setup() {
   Serial.begin(115200);
 
-  // PWM sur les 4 entrees du L298
-  ledcSetup(PWM_CH_IN1, PWM_FREQ, PWM_RESOLUTION);
-  ledcAttachPin(IN1, PWM_CH_IN1);
-  ledcSetup(PWM_CH_IN2, PWM_FREQ, PWM_RESOLUTION);
-  ledcAttachPin(IN2, PWM_CH_IN2);
-  ledcSetup(PWM_CH_IN3, PWM_FREQ, PWM_RESOLUTION);
-  ledcAttachPin(IN3, PWM_CH_IN3);
-  ledcSetup(PWM_CH_IN4, PWM_FREQ, PWM_RESOLUTION);
-  ledcAttachPin(IN4, PWM_CH_IN4);
+  // PWM sur les 4 entrees du L298 (API ESP32 core v3.x)
+  ledcAttach(IN1, PWM_FREQ, PWM_RESOLUTION);
+  ledcAttach(IN2, PWM_FREQ, PWM_RESOLUTION);
+  ledcAttach(IN3, PWM_FREQ, PWM_RESOLUTION);
+  ledcAttach(IN4, PWM_FREQ, PWM_RESOLUTION);
 
   rover_stop();
 
