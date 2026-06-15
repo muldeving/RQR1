@@ -14,16 +14,19 @@
 const char* AP_SSID     = "Rover_ESP32";
 const char* AP_PASSWORD = "rover1234"; // 8 caractères minimum
 
-// ---------- Brochage L298 ----------
-// Module L298 avec 4 entrees seulement (pas d'ENA/ENB) :
-// on pilote la vitesse en envoyant le PWM directement sur les
-// entrees IN1/IN2 (moteur gauche) et IN3/IN4 (moteur droit).
-// Une seule des deux entrees recoit le PWM, l'autre reste a 0,
-// selon le sens de rotation demande.
-const int IN1 = 26;   // moteur gauche - entree 1
-const int IN2 = 27;   // moteur gauche - entree 2
-const int IN3 = 32;   // moteur droit  - entree 1
-const int IN4 = 33;   // moteur droit  - entree 2
+// ---------- Brochage L298N ----------
+// Module L298N classique : 4 entrees de sens (IN1..IN4) en logique TOR
+// + 2 entrees d'activation (ENA / ENB) sur lesquelles on envoie le PWM
+// pour regler la vitesse de chaque moteur.
+// Moteur gauche
+const int IN1 = 26;   // sens moteur gauche
+const int IN2 = 27;
+const int ENA = 14;   // PWM moteur gauche
+
+// Moteur droit
+const int IN3 = 12;   // sens moteur droit
+const int IN4 = 33;
+const int ENB = 32;   // PWM moteur droit
 
 // ---------- Configuration PWM (LEDC) ----------
 // API LEDC du core ESP32 v3.x : ledcAttach(pin, freq, resolution)
@@ -37,36 +40,38 @@ int currentSpeed = 60;
 WebServer server(80);
 
 // ---------- Commandes moteurs ----------
-// Sur ce module L298 sans ENA/ENB, le sens et la vitesse sont
-// donnes par les deux entrees du moteur :
-//   avant   : INx = PWM, INy = 0
-//   arriere : INx = 0,   INy = PWM
-//   stop    : INx = 0,   INy = 0
+// Sens donne par IN1/IN2 (resp. IN3/IN4), vitesse par PWM sur ENA (resp. ENB).
 void setMotorLeft(int dir, int pwm) {
   // dir : +1 avant, -1 arriere, 0 stop
   if (dir > 0) {
-    ledcWrite(IN1, pwm);
-    ledcWrite(IN2, 0);
+    digitalWrite(IN1, HIGH);
+    digitalWrite(IN2, LOW);
   } else if (dir < 0) {
-    ledcWrite(IN1, 0);
-    ledcWrite(IN2, pwm);
+    digitalWrite(IN1, LOW);
+    digitalWrite(IN2, HIGH);
   } else {
-    ledcWrite(IN1, 0);
-    ledcWrite(IN2, 0);
+    digitalWrite(IN1, LOW);
+    digitalWrite(IN2, LOW);
   }
+  ledcWrite(ENA, pwm);
+  Serial.printf("[L] dir=%d pwm=%d IN1=%d IN2=%d\n",
+                dir, pwm, digitalRead(IN1), digitalRead(IN2));
 }
 
 void setMotorRight(int dir, int pwm) {
   if (dir > 0) {
-    ledcWrite(IN3, pwm);
-    ledcWrite(IN4, 0);
+    digitalWrite(IN3, HIGH);
+    digitalWrite(IN4, LOW);
   } else if (dir < 0) {
-    ledcWrite(IN3, 0);
-    ledcWrite(IN4, pwm);
+    digitalWrite(IN3, LOW);
+    digitalWrite(IN4, HIGH);
   } else {
-    ledcWrite(IN3, 0);
-    ledcWrite(IN4, 0);
+    digitalWrite(IN3, LOW);
+    digitalWrite(IN4, LOW);
   }
+  ledcWrite(ENB, pwm);
+  Serial.printf("[R] dir=%d pwm=%d IN3=%d IN4=%d\n",
+                dir, pwm, digitalRead(IN3), digitalRead(IN4));
 }
 
 int speedToPwm(int pct) {
@@ -158,6 +163,8 @@ void handleRoot() {
 void handleCmd() {
   if (!server.hasArg("c")) { server.send(400, "text/plain", "missing c"); return; }
   String c = server.arg("c");
+  Serial.print("[cmd] "); Serial.print(c);
+  Serial.print(" speed="); Serial.println(currentSpeed);
   if      (c == "F") rover_forward();
   else if (c == "B") rover_backward();
   else if (c == "L") rover_left();
@@ -182,13 +189,34 @@ void handleNotFound() {
 void setup() {
   Serial.begin(115200);
 
-  // PWM sur les 4 entrees du L298 (API ESP32 core v3.x)
-  ledcAttach(IN1, PWM_FREQ, PWM_RESOLUTION);
-  ledcAttach(IN2, PWM_FREQ, PWM_RESOLUTION);
-  ledcAttach(IN3, PWM_FREQ, PWM_RESOLUTION);
-  ledcAttach(IN4, PWM_FREQ, PWM_RESOLUTION);
+  // Broches de sens (TOR)
+  pinMode(IN1, OUTPUT);
+  pinMode(IN2, OUTPUT);
+  pinMode(IN3, OUTPUT);
+  pinMode(IN4, OUTPUT);
+
+  // PWM sur ENA / ENB (API ESP32 core v3.x)
+  bool okA = ledcAttach(ENA, PWM_FREQ, PWM_RESOLUTION);
+  bool okB = ledcAttach(ENB, PWM_FREQ, PWM_RESOLUTION);
+  Serial.print("ledcAttach ENA="); Serial.print(okA);
+  Serial.print(" ENB=");           Serial.println(okB);
 
   rover_stop();
+
+  // --- Auto-test moteurs au demarrage ---
+  // Permet de verifier le cablage L298N sans passer par le WiFi.
+  // Le rover doit avancer 1s, puis reculer 1s, puis s'arreter.
+  Serial.println("Auto-test moteurs: AVANT 1s");
+  int savedSpeed = currentSpeed;
+  currentSpeed = 80;
+  rover_forward();
+  delay(1000);
+  Serial.println("Auto-test moteurs: ARRIERE 1s");
+  rover_backward();
+  delay(1000);
+  rover_stop();
+  currentSpeed = savedSpeed;
+  Serial.println("Auto-test termine.");
 
   // Point d'acces WiFi
   WiFi.mode(WIFI_AP);
