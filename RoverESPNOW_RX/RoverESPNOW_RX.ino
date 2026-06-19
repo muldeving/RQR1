@@ -59,9 +59,10 @@ void applyDrive(int8_t x, int8_t y) {
     int base = map(abs(y), 0, 100, 0, 255);
     int turn = map(abs(x), 0, 100, 0, 255) / 2;
 
+    // Moteur gauche plus rapide = virage droite ; moteur droit plus rapide = virage gauche
     int pwmL = base, pwmR = base;
-    if      (x > 0) { pwmL = min(base + turn, 255); pwmR = max(base - turn, 0); }
-    else if (x < 0) { pwmL = max(base - turn, 0);   pwmR = min(base + turn, 255); }
+    if      (x > 0) { pwmL = max(base - turn, 0);   pwmR = min(base + turn, 255); }
+    else if (x < 0) { pwmL = min(base + turn, 255);  pwmR = max(base - turn, 0);  }
 
     setMotorLeft(dir, pwmL);
     setMotorRight(dir, pwmR);
