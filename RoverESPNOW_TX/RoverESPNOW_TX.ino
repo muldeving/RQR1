@@ -18,19 +18,18 @@ uint8_t ROVER_MAC[] = {0xE4, 0x65, 0xB8, 0xD8, 0xE8, 0xB4};
 #define PIN_SERVO 4
 
 // Zone morte brute autour du centre ADC (2048).
-// Augmenter si le joystick dérive au repos (ex: potentiomètre non centré).
-#define DEAD_ZONE 400
-// Seuil minimal sur la valeur normalisée — filtre le bruit résiduel
-#define NORM_THRESHOLD 5
+#define DEAD_ZONE 600
+
+// Déflexion physique (en unités ADC depuis le centre) correspondant à 100%.
+// Réglé à ~50 % de la course totale (2047) → 100% atteint à mi-course.
+// Au-delà, la valeur est saturée à 100.
+#define MAX_DEFLECT 1100
 
 int8_t normalize(int raw) {
     int v = raw - 2048;
     if (abs(v) < DEAD_ZONE) return 0;
-    int8_t result;
-    if (v > 0) result = (int8_t)constrain(map(v, DEAD_ZONE, 2047,  1,  100), -100, 100);
-    else       result = (int8_t)constrain(map(v, -2047, -DEAD_ZONE, -100, -1), -100, 100);
-    if (abs(result) < NORM_THRESHOLD) return 0;
-    return result;
+    if (v > 0) return (int8_t)constrain(map(v, DEAD_ZONE, MAX_DEFLECT, 1, 100), 1, 100);
+    else       return (int8_t)constrain(map(v, -MAX_DEFLECT, -DEAD_ZONE, -100, -1), -100, -1);
 }
 
 void setup() {
@@ -77,8 +76,8 @@ void loop() {
     int raw_s = analogRead(PIN_SERVO);
 
     espnow_packet_t pkt;
-    pkt.x   = normalize(raw_x);
-    pkt.y   = normalize(raw_y);
+    pkt.x   = -normalize(raw_x);  // inversion sens G/D
+    pkt.y   = -normalize(raw_y);  // inversion sens AV/AR
     pkt.srv = (uint8_t)map(raw_s, 0, 4095, 0, 180);
 
     esp_err_t res = esp_now_send(ROVER_MAC, (uint8_t *)&pkt, sizeof(pkt));
