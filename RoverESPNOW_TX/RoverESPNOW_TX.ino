@@ -8,6 +8,7 @@
 #include <esp_now.h>
 #include <WiFi.h>
 #include "esp_wifi.h"
+#include "driver/gpio.h"
 #include "espnow_packet.h"
 
 // MAC WiFi STA du rover (ESP32-WROOM32), confirmée via esptool
@@ -36,7 +37,10 @@ void setup() {
     Serial.begin(115200);
     delay(1000);  // laisser le rover démarrer en premier
 
+    // GPIO 4 = JTAG_MTMS sur ESP32-C3 ; reset forcé pour libérer la fonction ADC
+    gpio_reset_pin((gpio_num_t)PIN_SERVO);
     analogSetAttenuation(ADC_11db);
+    analogSetPinAttenuation(PIN_SERVO, ADC_11db);
 
     WiFi.mode(WIFI_STA);
     delay(200);
