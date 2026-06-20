@@ -1,9 +1,9 @@
 /*
- * Rover ESP32-WROOM32 — ESP-NOW RX + pilotage L298N + servo
+ * Rover ESP32-WROOM32 — ESP-NOW RX + pilotage L298N + ESC brushless
  * Pinout conservé depuis RoverWifiL298.ino :
  *   IN1=26 IN2=27 ENA=14  (moteur gauche)
  *   IN3=12 IN4=33 ENB=32  (moteur droit)
- *   SERVO_PIN=13           (servo 50 Hz)
+ *   ESC_PIN=13             (ESC 50 Hz, 1000-2000 µs)
  */
 
 #include <esp_now.h>
@@ -15,13 +15,13 @@
 const int IN1 = 26, IN2 = 27, ENA = 14;
 const int IN3 = 12, IN4 = 33, ENB = 32;
 
-// Servo — 16-bit @ 50 Hz (période 20 ms, 1 step = 0.305 µs)
-const int SERVO_PIN  = 13;
-const int SERVO_FREQ = 50;
-const int SERVO_RES  = 16;
-const int SERVO_MIN  = 1638;   // 500 µs
-const int SERVO_MAX  = 8192;   // 2500 µs
-const int SERVO_CTR  = (SERVO_MIN + SERVO_MAX) / 2;
+// ESC brushless — 16-bit @ 50 Hz (période 20 ms, 1 step ≈ 0.305 µs)
+// Plage standard ESC hobby : 1000 µs (gaz zéro) → 2000 µs (plein gaz)
+const int ESC_PIN  = 13;
+const int ESC_FREQ = 50;
+const int ESC_RES  = 16;
+const int ESC_MIN  = 3277;   // 1000 µs — gaz zéro / signal d'armement
+const int ESC_MAX  = 6554;   // 2000 µs — plein gaz
 
 // Moteurs
 const int PWM_FREQ = 1000;
@@ -73,21 +73,26 @@ void onDataRecv(const esp_now_recv_info_t *info, const uint8_t *data, int len) {
     const espnow_packet_t *pkt = (const espnow_packet_t *)data;
     last_packet_ms = millis();
     applyDrive(pkt->x, pkt->y);
-    ledcWrite(SERVO_PIN, map(pkt->srv, 0, 180, SERVO_MIN, SERVO_MAX));
+    ledcWrite(ESC_PIN, map(pkt->srv, 0, 180, ESC_MIN, ESC_MAX));
 }
 
 void setup() {
     Serial.begin(115200);
     delay(1000);
 
-    // Moteurs et servo
+    // Moteurs
     pinMode(IN1, OUTPUT); pinMode(IN2, OUTPUT);
     pinMode(IN3, OUTPUT); pinMode(IN4, OUTPUT);
     ledcAttach(ENA, PWM_FREQ, PWM_RES);
     ledcAttach(ENB, PWM_FREQ, PWM_RES);
-    ledcAttach(SERVO_PIN, SERVO_FREQ, SERVO_RES);
-    ledcWrite(SERVO_PIN, SERVO_CTR);
     rover_stop();
+
+    // ESC — signal gaz zéro maintenu pendant l'armement
+    ledcAttach(ESC_PIN, ESC_FREQ, ESC_RES);
+    ledcWrite(ESC_PIN, ESC_MIN);
+    Serial.println("ESC : armement en cours (3s)...");
+    delay(3000);   // l'ESC bipe et s'arme sur signal 1000 µs
+    Serial.println("ESC : prêt.");
 
     // WiFi STA sans économie d'énergie (nécessaire pour recevoir en permanence)
     WiFi.mode(WIFI_STA);
@@ -119,7 +124,7 @@ void loop() {
 
     if (ago > 300) {
         rover_stop();
-        ledcWrite(SERVO_PIN, SERVO_CTR);
+        ledcWrite(ESC_PIN, ESC_MIN);  // coupure gaz sécurité
     }
 
     static unsigned long last_log = 0;
