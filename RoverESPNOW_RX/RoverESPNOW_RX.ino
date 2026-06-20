@@ -70,7 +70,7 @@ void onDataRecv(const esp_now_recv_info_t *info, const uint8_t *data, int len) {
     const espnow_packet_t *pkt = (const espnow_packet_t *)data;
     last_packet_ms = millis();
     applyDrive(pkt->x, pkt->y);
-    myServo.write(pkt->srv);
+    myServo.writeMicroseconds(map(pkt->srv, 0, 180, 500, 2500));
 }
 
 void setup() {
@@ -83,7 +83,7 @@ void setup() {
     ledcAttach(ENA, PWM_FREQ, PWM_RES);
     ledcAttach(ENB, PWM_FREQ, PWM_RES);
     myServo.attach(SERVO_PIN, 500, 2500);
-    myServo.write(90);
+    myServo.writeMicroseconds(1500);
     rover_stop();
 
     // WiFi STA sans économie d'énergie (nécessaire pour recevoir en permanence)
@@ -116,7 +116,7 @@ void loop() {
 
     if (ago > 300) {
         rover_stop();
-        myServo.write(90);
+        myServo.writeMicroseconds(1500);
     }
 
     static unsigned long last_log = 0;
