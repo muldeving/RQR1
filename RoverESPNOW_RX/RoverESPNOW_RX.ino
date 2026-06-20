@@ -9,16 +9,19 @@
 #include <esp_now.h>
 #include <WiFi.h>
 #include "esp_wifi.h"
-#include <ESP32Servo.h>
 #include "espnow_packet.h"
 
 // L298N
 const int IN1 = 26, IN2 = 27, ENA = 14;
 const int IN3 = 12, IN4 = 33, ENB = 32;
 
-// Servo
-const int SERVO_PIN = 13;
-Servo myServo;
+// Servo — 16-bit @ 50 Hz (période 20 ms, 1 step = 0.305 µs)
+const int SERVO_PIN  = 13;
+const int SERVO_FREQ = 50;
+const int SERVO_RES  = 16;
+const int SERVO_MIN  = 1638;   // 500 µs
+const int SERVO_MAX  = 8192;   // 2500 µs
+const int SERVO_CTR  = (SERVO_MIN + SERVO_MAX) / 2;
 
 // Moteurs
 const int PWM_FREQ = 1000;
@@ -70,7 +73,7 @@ void onDataRecv(const esp_now_recv_info_t *info, const uint8_t *data, int len) {
     const espnow_packet_t *pkt = (const espnow_packet_t *)data;
     last_packet_ms = millis();
     applyDrive(pkt->x, pkt->y);
-    myServo.writeMicroseconds(map(pkt->srv, 0, 180, 500, 2500));
+    ledcWrite(SERVO_PIN, map(pkt->srv, 0, 180, SERVO_MIN, SERVO_MAX));
 }
 
 void setup() {
@@ -82,8 +85,8 @@ void setup() {
     pinMode(IN3, OUTPUT); pinMode(IN4, OUTPUT);
     ledcAttach(ENA, PWM_FREQ, PWM_RES);
     ledcAttach(ENB, PWM_FREQ, PWM_RES);
-    myServo.attach(SERVO_PIN, 500, 2500);
-    myServo.writeMicroseconds(1500);
+    ledcAttach(SERVO_PIN, SERVO_FREQ, SERVO_RES);
+    ledcWrite(SERVO_PIN, SERVO_CTR);
     rover_stop();
 
     // WiFi STA sans économie d'énergie (nécessaire pour recevoir en permanence)
@@ -116,7 +119,7 @@ void loop() {
 
     if (ago > 300) {
         rover_stop();
-        myServo.writeMicroseconds(1500);
+        ledcWrite(SERVO_PIN, SERVO_CTR);
     }
 
     static unsigned long last_log = 0;
