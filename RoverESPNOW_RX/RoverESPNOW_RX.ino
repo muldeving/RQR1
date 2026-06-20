@@ -28,6 +28,7 @@ const int PWM_FREQ = 1000;
 const int PWM_RES  = 8;
 
 volatile unsigned long last_packet_ms = 0;
+volatile bool esc_armed = false;  // vrai uniquement après avoir vu srv≈0
 
 void setMotorLeft(int dir, int pwm) {
     if      (dir > 0) { digitalWrite(IN1, HIGH); digitalWrite(IN2, LOW);  }
@@ -73,7 +74,13 @@ void onDataRecv(const esp_now_recv_info_t *info, const uint8_t *data, int len) {
     const espnow_packet_t *pkt = (const espnow_packet_t *)data;
     last_packet_ms = millis();
     applyDrive(pkt->x, pkt->y);
-    ledcWrite(ESC_PIN, map(pkt->srv, 0, 180, ESC_MIN, ESC_MAX));
+
+    if (!esc_armed) {
+        if (pkt->srv <= 5) esc_armed = true;  // pot confirmé au minimum
+        ledcWrite(ESC_PIN, ESC_MIN);
+    } else {
+        ledcWrite(ESC_PIN, map(pkt->srv, 0, 180, ESC_MIN, ESC_MAX));
+    }
 }
 
 void setup() {
@@ -124,7 +131,8 @@ void loop() {
 
     if (ago > 300) {
         rover_stop();
-        ledcWrite(ESC_PIN, ESC_MIN);  // coupure gaz sécurité
+        ledcWrite(ESC_PIN, ESC_MIN);
+        esc_armed = false;  // nécessite retour pot à zéro avant de reprendre
     }
 
     static unsigned long last_log = 0;
