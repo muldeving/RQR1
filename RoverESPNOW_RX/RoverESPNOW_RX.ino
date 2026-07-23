@@ -1,9 +1,8 @@
 /*
- * Rover ESP32-WROOM32 — ESP-NOW RX + pilotage L298N + ESC brushless
- * Pinout conservé depuis RoverWifiL298.ino :
- *   IN1=26 IN2=27 ENA=14  (moteur gauche)
- *   IN3=12 IN4=33 ENB=32  (moteur droit)
- *   ESC_PIN=13             (ESC 50 Hz, 1000-2000 µs)
+ * Rover ESP32-WROOM32 — ESP-NOW RX + pilotage L298N (PWM) + moteur DC on/off
+ *   IN1=26 IN2=27 ENA=14  (moteur gauche, PWM 1kHz 8-bit)
+ *   IN3=12 IN4=33 ENB=32  (moteur droit,  PWM 1kHz 8-bit)
+ *   MOTOR_PIN=13           (moteur DC auxiliaire, on/off)
  */
 
 #include <esp_now.h>
@@ -15,20 +14,13 @@
 const int IN1 = 26, IN2 = 27, ENA = 14;
 const int IN3 = 12, IN4 = 33, ENB = 32;
 
-// ESC brushless — 16-bit @ 50 Hz (période 20 ms, 1 step ≈ 0.305 µs)
-// Plage standard ESC hobby : 1000 µs (gaz zéro) → 2000 µs (plein gaz)
-const int ESC_PIN  = 13;
-const int ESC_FREQ = 50;
-const int ESC_RES  = 16;
-const int ESC_MIN  = 3277;   // 1000 µs — gaz zéro / signal d'armement
-const int ESC_MAX  = 6554;   // 2000 µs — plein gaz
-
-// Moteurs
 const int PWM_FREQ = 1000;
 const int PWM_RES  = 8;
 
+// Moteur DC auxiliaire (on/off)
+const int MOTOR_PIN = 13;
+
 volatile unsigned long last_packet_ms = 0;
-volatile bool esc_armed = false;  // vrai uniquement après avoir vu srv≈0
 
 void setMotorLeft(int dir, int pwm) {
     if      (dir > 0) { digitalWrite(IN1, HIGH); digitalWrite(IN2, LOW);  }
@@ -58,15 +50,17 @@ void applyDrive(int8_t x, int8_t y) {
 
     int dir  = (y > 0) ? 1 : -1;
     int base = map(abs(y), 0, 100, 0, 255);
-    int turn = map(abs(x), 0, 100, 0, 255) / 2;
+    int turn = map(abs(x), 0, 100, 0, 255);
 
-    // Moteur gauche plus rapide = virage droite ; moteur droit plus rapide = virage gauche
     int pwmL = base, pwmR = base;
-    if      (x > 0) { pwmL = max(base - turn, 0);   pwmR = min(base + turn, 255); }
-    else if (x < 0) { pwmL = min(base + turn, 255);  pwmR = max(base - turn, 0);  }
+    if      (x > 0) { pwmL = base - turn; pwmR = min(base + turn, 255); }
+    else if (x < 0) { pwmL = min(base + turn, 255); pwmR = base - turn; }
 
-    setMotorLeft(dir, pwmL);
-    setMotorRight(dir, pwmR);
+    // Roue intérieure peut contra-tourner si turn > base
+    if (pwmL < 0) setMotorLeft(-dir, -pwmL);
+    else          setMotorLeft( dir,  pwmL);
+    if (pwmR < 0) setMotorRight(-dir, -pwmR);
+    else          setMotorRight( dir,  pwmR);
 }
 
 void onDataRecv(const esp_now_recv_info_t *info, const uint8_t *data, int len) {
@@ -74,36 +68,26 @@ void onDataRecv(const esp_now_recv_info_t *info, const uint8_t *data, int len) {
     const espnow_packet_t *pkt = (const espnow_packet_t *)data;
     last_packet_ms = millis();
     applyDrive(pkt->x, pkt->y);
-
-    if (!esc_armed) {
-        if (pkt->srv <= 5) esc_armed = true;  // pot confirmé au minimum
-        ledcWrite(ESC_PIN, ESC_MIN);
-    } else {
-        ledcWrite(ESC_PIN, map(pkt->srv, 0, 180, ESC_MIN, ESC_MAX));
-    }
+    digitalWrite(MOTOR_PIN, pkt->srv ? LOW : HIGH);
 }
 
 void setup() {
     Serial.begin(115200);
     delay(1000);
 
-    // Moteurs
+    // L298N
     pinMode(IN1, OUTPUT); pinMode(IN2, OUTPUT);
     pinMode(IN3, OUTPUT); pinMode(IN4, OUTPUT);
     ledcAttach(ENA, PWM_FREQ, PWM_RES);
     ledcAttach(ENB, PWM_FREQ, PWM_RES);
     rover_stop();
 
-    // ESC — signal gaz zéro maintenu pendant l'armement
-    ledcAttach(ESC_PIN, ESC_FREQ, ESC_RES);
-    ledcWrite(ESC_PIN, ESC_MIN);
-    Serial.println("ESC : armement en cours (3s)...");
-    delay(3000);   // l'ESC bipe et s'arme sur signal 1000 µs
-    Serial.println("ESC : prêt.");
+    // Moteur DC auxiliaire
+    pinMode(MOTOR_PIN, OUTPUT);
+    digitalWrite(MOTOR_PIN, HIGH);  // inhibé au démarrage
 
-    // WiFi STA sans économie d'énergie (nécessaire pour recevoir en permanence)
     WiFi.mode(WIFI_STA);
-    WiFi.setSleep(false);   // désactive le modem sleep
+    WiFi.setSleep(false);
     delay(200);
 
     if (esp_now_init() != ESP_OK) {
@@ -111,7 +95,6 @@ void setup() {
         while (1) delay(1000);
     }
 
-    // Peer broadcast — requis pour activer la réception dans core v3.x
     esp_now_peer_info_t bcast = {};
     memset(bcast.peer_addr, 0xFF, 6);
     bcast.channel = 0; bcast.encrypt = false;
@@ -131,8 +114,7 @@ void loop() {
 
     if (ago > 300) {
         rover_stop();
-        ledcWrite(ESC_PIN, ESC_MIN);
-        esc_armed = false;  // nécessite retour pot à zéro avant de reprendre
+        digitalWrite(MOTOR_PIN, HIGH);
     }
 
     static unsigned long last_log = 0;
